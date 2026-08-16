@@ -1,5 +1,5 @@
 from tools import list_files
-
+from tools import list_flight_logs
 
 def test_invalid_directory():
     result = list_files("this_folder_should_not_exist")
@@ -30,3 +30,10 @@ def test_does_not_return_directories(tmp_path):
     assert result["success"] is True
     assert "main.py" in result["files"]
     assert "logs" not in result["files"]
+
+
+def test_list_flight_logs():
+    logs = list_flight_logs()
+
+    assert isinstance(logs, list)
+    assert "sample_flight.csv" in logs

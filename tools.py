@@ -1,5 +1,19 @@
 from pathlib import Path
 
+DATA_DIR = Path(__file__).parent / "data"
+
+
+def list_flight_logs():
+    if not DATA_DIR.exists():
+        return []
+
+    allowed_extensions = {".csv", ".json", ".log", ".txt"}
+
+    return sorted(
+        file.name
+        for file in DATA_DIR.iterdir()
+        if file.is_file() and file.suffix.lower() in allowed_extensions
+    )
 
 def list_files(directory="."):
     """
