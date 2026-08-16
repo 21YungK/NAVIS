@@ -10,7 +10,7 @@ The project currently focuses on **PX4 ULog (`.ulg`) flight data**, with support
 
 ## Why I Built It
 
-MI've been interested in quadcopters for years, especially FPV drones and the technical side of building, tuning, flying, and troubleshooting them. That interest is what pushed me toward working with flight data and understanding what is actually happening inside a vehicle during flight.
+I've been interested in quadcopters for years, especially FPV drones and the technical side of building, tuning, flying, and troubleshooting them. That interest is what pushed me toward working with flight data and understanding what is actually happening inside a vehicle during flight.
 
 My original idea for NAVIS was fairly simple: load a drone flight log and automatically identify anything unusual.
 
