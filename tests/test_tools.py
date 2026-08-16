@@ -56,3 +56,8 @@ def test_inspect_flight_log_missing_file():
     result = inspect_flight_log("does_not_exist.csv")
 
     assert result["error"] == "File not found"
+
+def test_inspect_invalid_ulg():
+    result = inspect_flight_log("sample_px4.ulg")
+
+    assert "error" in result

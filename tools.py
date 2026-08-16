@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+from pyulog import ULog
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -73,6 +74,29 @@ def inspect_flight_log(filename: str):
             "rows": row_count,
             "columns": headers,
         }
+
+    if suffix == ".ulg":
+        try:
+            ulog = ULog(str(path))
+
+            topics = sorted({
+                dataset.name
+                for dataset in ulog.data_list
+            })
+
+            return {
+                "filename": filename,
+                "format": "ulg",
+                "topic_count": len(topics),
+                "topics": topics,
+                "start_timestamp": ulog.start_timestamp,
+                "last_timestamp": ulog.last_timestamp,
+            }
+
+        except Exception as exc:
+            return {
+                "error": f"Failed to parse ULog: {exc}"
+            }
 
     return {
         "error": f"Unsupported format: {suffix}"
