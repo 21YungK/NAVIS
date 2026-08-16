@@ -149,6 +149,66 @@ def flight_summary(filename: str):
         return {
             "error": f"Failed to summarize ULog: {exc}"
         }
+def correlate_anomalies(anomalies, window_seconds=1.0):
+    correlations = []
+
+    voltage_events = [
+        event for event in anomalies
+        if event["type"] == "battery_voltage_sag"
+    ]
+
+    current_events = [
+        event for event in anomalies
+        if event["type"] == "high_current"
+    ]
+
+    for voltage_event in voltage_events:
+        for current_event in current_events:
+            time_difference = abs(
+                voltage_event["timestamp_s"]
+                - current_event["timestamp_s"]
+            )
+
+            if time_difference <= window_seconds:
+                voltage_drop_pct = (
+                    (
+                        voltage_event["threshold_v"]
+                        - voltage_event["value_v"]
+                    )
+                    / voltage_event["threshold_v"]
+                ) * 100
+
+                severity = "medium"
+
+                if (
+                    voltage_drop_pct >= 4
+                    or current_event["value_a"]
+                    >= current_event["threshold_a"] * 1.1
+                ):
+                    severity = "high"
+
+                correlations.append({
+                    "type": "power_event",
+                    "timestamp_s": round(
+                        min(
+                            voltage_event["timestamp_s"],
+                            current_event["timestamp_s"],
+                        ),
+                        2,
+                    ),
+                    "severity": severity,
+                    "time_difference_s": round(time_difference, 2),
+                    "voltage_v": voltage_event["value_v"],
+                    "current_a": current_event["value_a"],
+                    "diagnosis": (
+                        "High current draw coincided with a battery "
+                        "voltage sag, indicating a possible high-load "
+                        "power event."
+                    ),
+                })
+
+    return correlations
+
 
 def detect_anomalies(filename: str):
     path = DATA_DIR / filename
@@ -230,14 +290,18 @@ def detect_anomalies(filename: str):
                 "satellites": minimum_satellites,
                 "threshold": low_gps_threshold,
             })
-
+        correlations = correlate_anomalies(anomalies)
         return {
             "filename": filename,
             "anomaly_count": len(anomalies),
             "anomalies": anomalies,
+            "correlation_count": len(correlations),
+            "correlations": correlations,
         }
 
     except Exception as exc:
         return {
             "error": f"Failed to analyze ULog: {exc}"
         }
+
+
