@@ -7,8 +7,14 @@ def list_flight_logs():
     if not DATA_DIR.exists():
         return []
 
-    allowed_extensions = {".csv", ".json", ".log", ".txt"}
-
+    allowed_extensions = {
+    ".ulg",
+    ".bin",
+    ".csv",
+    ".tlog",
+    ".json",
+    ".log",
+}
     return sorted(
         file.name
         for file in DATA_DIR.iterdir()

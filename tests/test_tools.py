@@ -37,3 +37,5 @@ def test_list_flight_logs():
 
     assert isinstance(logs, list)
     assert "sample_flight.csv" in logs
+    assert "sample_px4.ulg" in logs
+    assert "sample_ardupilot.bin" in logs
