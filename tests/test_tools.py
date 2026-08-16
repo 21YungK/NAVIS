@@ -1,5 +1,6 @@
 from tools import list_files
 from tools import list_flight_logs
+from tools import list_flight_logs, inspect_flight_log
 
 def test_invalid_directory():
     result = list_files("this_folder_should_not_exist")
@@ -39,3 +40,19 @@ def test_list_flight_logs():
     assert "sample_flight.csv" in logs
     assert "sample_px4.ulg" in logs
     assert "sample_ardupilot.bin" in logs
+
+
+def test_inspect_flight_log_csv():
+    result = inspect_flight_log("sample_flight.csv")
+
+    assert result["filename"] == "sample_flight.csv"
+    assert result["format"] == "csv"
+    assert result["rows"] == 3
+    assert "timestamp" in result["columns"]
+    assert "altitude" in result["columns"]
+    assert "battery_voltage" in result["columns"]
+
+def test_inspect_flight_log_missing_file():
+    result = inspect_flight_log("does_not_exist.csv")
+
+    assert result["error"] == "File not found"

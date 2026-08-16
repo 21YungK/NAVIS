@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -49,4 +50,30 @@ def list_files(directory="."):
     return {
         "success": True,
         "files": files,
+    }
+
+def inspect_flight_log(filename: str):
+    path = DATA_DIR / filename
+
+    if not path.exists():
+        return {"error": "File not found"}
+
+    suffix = path.suffix.lower()
+
+    if suffix == ".csv":
+        with open(path, newline="", encoding="utf-8") as file:
+            reader = csv.reader(file)
+
+            headers = next(reader, [])
+            row_count = sum(1 for _ in reader)
+
+        return {
+            "filename": filename,
+            "format": "csv",
+            "rows": row_count,
+            "columns": headers,
+        }
+
+    return {
+        "error": f"Unsupported format: {suffix}"
     }

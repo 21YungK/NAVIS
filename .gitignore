@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .env
 logs/
+data/private/
+data/raw/
+*.ulg.large
+*.bin.large
