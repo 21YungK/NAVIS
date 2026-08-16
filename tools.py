@@ -5,6 +5,8 @@ import math
 
 DATA_DIR = Path(__file__).parent / "data"
 
+def max_absolute(values):
+    return max(abs(float(value)) for value in values)
 
 def list_flight_logs():
     if not DATA_DIR.exists():
@@ -526,4 +528,221 @@ def inspect_time_range(
     except Exception as exc:
         return {
             "error": f"Failed to inspect ULog time range: {exc}"
+        }
+
+def diagnose_event(
+    filename: str,
+    timestamp_s: float,
+    window_seconds: float = 2.0,
+):
+    path = DATA_DIR / filename
+
+    if not path.exists():
+        return {"error": "File not found"}
+
+    if path.suffix.lower() != ".ulg":
+        return {"error": "Event diagnosis currently supports .ulg files only"}
+
+    if timestamp_s < 0:
+        return {"error": "timestamp_s must be >= 0"}
+
+    try:
+        ulog = ULog(str(path))
+
+        start_time_s = max(0, timestamp_s - window_seconds)
+        end_time_s = timestamp_s + window_seconds
+
+        inspection = inspect_time_range(
+            filename,
+            start_time_s,
+            end_time_s,
+        )
+
+        if "error" in inspection:
+            return inspection
+
+        local_position = ulog.get_dataset(
+            "vehicle_local_position"
+        ).data
+
+        attitude_setpoint = ulog.get_dataset(
+            "vehicle_attitude_setpoint"
+        ).data
+
+        start_timestamp = (
+            ulog.start_timestamp
+            + int(start_time_s * 1_000_000)
+        )
+
+        end_timestamp = (
+            ulog.start_timestamp
+            + int(end_time_s * 1_000_000)
+        )
+
+        def indexes_in_range(timestamps):
+            return [
+                i
+                for i, ts in enumerate(timestamps)
+                if start_timestamp <= ts <= end_timestamp
+            ]
+
+        evidence = {}
+
+        # Vertical movement
+        position_indexes = indexes_in_range(
+            local_position["timestamp"]
+        )
+
+        if position_indexes:
+            vx = [
+                float(local_position["vx"][i])
+                for i in position_indexes
+            ]
+
+            vy = [
+                float(local_position["vy"][i])
+                for i in position_indexes
+            ]
+
+            vz = [
+                float(local_position["vz"][i])
+                for i in position_indexes
+            ]
+
+            evidence["velocity"] = {
+                "max_horizontal_speed_m_s": round(
+                    max(
+                        (x ** 2 + y ** 2) ** 0.5
+                        for x, y in zip(vx, vy)
+                    ),
+                    2,
+                ),
+                "max_climb_rate_m_s": round(
+                    abs(min(vz)),
+                    2,
+                ),
+                "max_descent_rate_m_s": round(
+                    max(vz),
+                    2,
+                ),
+            }
+
+        # Commanded attitude
+        setpoint_indexes = indexes_in_range(
+            attitude_setpoint["timestamp"]
+        )
+
+        if setpoint_indexes:
+            roll_sp = [
+                float(attitude_setpoint["roll_body"][i])
+                for i in setpoint_indexes
+            ]
+
+            pitch_sp = [
+                float(attitude_setpoint["pitch_body"][i])
+                for i in setpoint_indexes
+            ]
+
+            evidence["commanded_attitude"] = {
+                "max_roll_deg": round(
+                    math.degrees(max_absolute(roll_sp)),
+                    2,
+                ),
+                "max_pitch_deg": round(
+                    math.degrees(max_absolute(pitch_sp)),
+                    2,
+                ),
+            }
+
+        # Reuse inspection data
+        if "battery" in inspection:
+            evidence["battery"] = inspection["battery"]
+
+        if "gps" in inspection:
+            evidence["gps"] = inspection["gps"]
+
+        if "attitude" in inspection:
+            evidence["actual_attitude"] = inspection["attitude"]
+
+        if "motors" in inspection:
+            evidence["motors"] = inspection["motors"]
+
+        motor_saturation_count = 0
+
+        if "motors" in inspection:
+            for motor in inspection["motors"]["outputs"].values():
+                if motor["max"] >= 0.99:
+                    motor_saturation_count += 1
+
+        diagnosis = "undetermined_event"
+        confidence = "low"
+
+        battery = evidence.get("battery", {})
+        actual_attitude = evidence.get("actual_attitude", {})
+        commanded = evidence.get("commanded_attitude", {})
+        gps = evidence.get("gps", {})
+
+        high_current = (
+            battery.get("maximum_current_a", 0) >= 45
+        )
+
+        large_actual_attitude = False
+
+        if actual_attitude:
+            max_roll = max(
+                abs(v)
+                for v in actual_attitude["roll_range_deg"]
+            )
+
+            max_pitch = max(
+                abs(v)
+                for v in actual_attitude["pitch_range_deg"]
+            )
+
+            large_actual_attitude = (
+                max_roll >= 40
+                or max_pitch >= 40
+            )
+
+        large_commanded_attitude = (
+            commanded.get("max_roll_deg", 0) >= 35
+            or commanded.get("max_pitch_deg", 0) >= 35
+        )
+
+        gps_healthy = (
+            gps.get("minimum_satellites", 0) >= 10
+        )
+
+        if (
+            high_current
+            and motor_saturation_count >= 2
+            and large_actual_attitude
+            and large_commanded_attitude
+            and gps_healthy
+        ):
+            diagnosis = "high_load_maneuver"
+            confidence = "high"
+
+        elif (
+            high_current
+            and motor_saturation_count >= 2
+            and large_actual_attitude
+            and gps_healthy
+        ):
+            diagnosis = "possible_control_or_high_load_event"
+            confidence = "medium"
+
+        return {
+            "filename": filename,
+            "timestamp_s": timestamp_s,
+            "window_seconds": window_seconds,
+            "diagnosis": diagnosis,
+            "confidence": confidence,
+            "motor_saturation_count": motor_saturation_count,
+            "evidence": evidence,
+        }
+
+    except Exception as exc:
+        return {
+            "error": f"Failed to diagnose ULog event: {exc}"
         }
