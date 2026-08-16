@@ -1,6 +1,7 @@
 from tools import list_files
 from tools import list_flight_logs
 from tools import list_flight_logs, inspect_flight_log
+import tools
 
 def test_invalid_directory():
     result = list_files("this_folder_should_not_exist")
@@ -61,3 +62,50 @@ def test_inspect_invalid_ulg():
     result = inspect_flight_log("sample_px4.ulg")
 
     assert "error" in result
+
+# Testing the calculation logic itself
+def test_flight_summary_ulg(monkeypatch, tmp_path):
+    fake_log = tmp_path / "test.ulg"
+    fake_log.write_bytes(b"fake")
+
+    monkeypatch.setattr(tools, "DATA_DIR", tmp_path)
+
+    class FakeDataset:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeULog:
+        start_timestamp = 1_000_000
+        last_timestamp = 11_000_000
+
+        def __init__(self, path):
+            pass
+
+        def get_dataset(self, name):
+            datasets = {
+                "battery_status": FakeDataset({
+                    "voltage_v": [24.0, 23.5, 22.0]
+                }),
+                "vehicle_global_position": FakeDataset({
+                    "alt": [50.0, 75.0, 100.0]
+                }),
+                "vehicle_gps_position": FakeDataset({
+                    "satellites_used": [20, 18, 22]
+                }),
+            }
+
+            return datasets[name]
+
+    monkeypatch.setattr(tools, "ULog", FakeULog)
+
+    result = tools.flight_summary("test.ulg")
+
+    assert result["duration_seconds"] == 10.0
+
+    assert result["battery"]["start_voltage_v"] == 24.0
+    assert result["battery"]["end_voltage_v"] == 22.0
+    assert result["battery"]["minimum_voltage_v"] == 22.0
+
+    assert result["altitude"]["maximum_m"] == 100.0
+
+    assert result["gps"]["minimum_satellites"] == 18

@@ -7,3 +7,5 @@ data/private/
 data/raw/
 *.ulg.large
 *.bin.large
+data/real_*.ulg
+data/raw/

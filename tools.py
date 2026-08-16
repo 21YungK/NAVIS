@@ -101,3 +101,51 @@ def inspect_flight_log(filename: str):
     return {
         "error": f"Unsupported format: {suffix}"
     }
+
+def flight_summary(filename: str):
+    path = DATA_DIR / filename
+
+    if not path.exists():
+        return {"error": "File not found"}
+
+    if path.suffix.lower() != ".ulg":
+        return {"error": "Flight summary currently supports .ulg files only"}
+
+    try:
+        ulog = ULog(str(path))
+
+        duration_seconds = (
+            ulog.last_timestamp - ulog.start_timestamp
+        ) / 1_000_000
+
+        battery = ulog.get_dataset("battery_status").data
+        global_position = ulog.get_dataset("vehicle_global_position").data
+        gps = ulog.get_dataset("vehicle_gps_position").data
+
+        voltage = battery["voltage_v"]
+        altitude = global_position["alt"]
+        satellites = gps["satellites_used"]
+
+        return {
+            "filename": filename,
+            "duration_seconds": round(duration_seconds, 2),
+
+            "battery": {
+                "start_voltage_v": round(float(voltage[0]), 2),
+                "end_voltage_v": round(float(voltage[-1]), 2),
+                "minimum_voltage_v": round(float(min(voltage)), 2),
+            },
+
+            "altitude": {
+                "maximum_m": round(float(max(altitude)), 2),
+            },
+
+            "gps": {
+                "minimum_satellites": int(min(satellites)),
+            },
+        }
+
+    except Exception as exc:
+        return {
+            "error": f"Failed to summarize ULog: {exc}"
+        }
