@@ -1,6 +1,7 @@
 import csv
 from pathlib import Path
 from pyulog import ULog
+import math
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -304,4 +305,225 @@ def detect_anomalies(filename: str):
             "error": f"Failed to analyze ULog: {exc}"
         }
 
+# Convert quaternion to Euler angles before returning
+def quaternion_to_euler(w, x, y, z):
+    # Roll
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
 
+    # Pitch
+    sinp = 2 * (w * y - z * x)
+
+    if abs(sinp) >= 1:
+        pitch = math.copysign(math.pi / 2, sinp)
+    else:
+        pitch = math.asin(sinp)
+
+    # Yaw
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y * y + z * z)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    return {
+        "roll_deg": round(math.degrees(roll), 2),
+        "pitch_deg": round(math.degrees(pitch), 2),
+        "yaw_deg": round(math.degrees(yaw), 2),
+    }
+
+
+def inspect_time_range(
+    filename: str,
+    start_time_s: float,
+    end_time_s: float,
+):
+    path = DATA_DIR / filename
+
+    if not path.exists():
+        return {"error": "File not found"}
+
+    if path.suffix.lower() != ".ulg":
+        return {"error": "Time range inspection currently supports .ulg files only"}
+
+    if start_time_s < 0:
+        return {"error": "start_time_s must be >= 0"}
+
+    if end_time_s <= start_time_s:
+        return {"error": "end_time_s must be greater than start_time_s"}
+
+    try:
+        ulog = ULog(str(path))
+
+        start_timestamp = (
+            ulog.start_timestamp
+            + int(start_time_s * 1_000_000)
+        )
+
+        end_timestamp = (
+            ulog.start_timestamp
+            + int(end_time_s * 1_000_000)
+        )
+
+        battery = ulog.get_dataset("battery_status").data
+        gps = ulog.get_dataset("vehicle_gps_position").data
+        position = ulog.get_dataset("vehicle_global_position").data
+        attitude = ulog.get_dataset("vehicle_attitude").data
+        motors = ulog.get_dataset("actuator_motors").data
+
+        def indexes_in_range(timestamps):
+            return [
+                i
+                for i, timestamp in enumerate(timestamps)
+                if start_timestamp <= timestamp <= end_timestamp
+            ]
+
+        result = {
+            "filename": filename,
+            "start_time_s": start_time_s,
+            "end_time_s": end_time_s,
+        }
+
+        # Battery
+        battery_indexes = indexes_in_range(battery["timestamp"])
+
+        if battery_indexes:
+            voltages = [
+                float(battery["voltage_v"][i])
+                for i in battery_indexes
+            ]
+
+            currents = [
+                float(battery["current_a"][i])
+                for i in battery_indexes
+            ]
+
+            result["battery"] = {
+                "sample_count": len(battery_indexes),
+                "minimum_voltage_v": round(min(voltages), 2),
+                "maximum_current_a": round(max(currents), 2),
+                "average_voltage_v": round(
+                    sum(voltages) / len(voltages),
+                    2,
+                ),
+                "average_current_a": round(
+                    sum(currents) / len(currents),
+                    2,
+                ),
+            }
+
+        # GPS
+        gps_indexes = indexes_in_range(gps["timestamp"])
+
+        if gps_indexes:
+            satellites = [
+                int(gps["satellites_used"][i])
+                for i in gps_indexes
+            ]
+
+            result["gps"] = {
+                "sample_count": len(gps_indexes),
+                "minimum_satellites": min(satellites),
+                "maximum_satellites": max(satellites),
+            }
+
+        # Position / altitude
+        position_indexes = indexes_in_range(
+            position["timestamp"]
+        )
+
+        if position_indexes:
+            altitudes = [
+                float(position["alt"][i])
+                for i in position_indexes
+            ]
+
+            result["position"] = {
+                "sample_count": len(position_indexes),
+                "minimum_altitude_m": round(min(altitudes), 2),
+                "maximum_altitude_m": round(max(altitudes), 2),
+            }
+
+        # Attitude
+        attitude_indexes = indexes_in_range(
+            attitude["timestamp"]
+        )
+
+        if attitude_indexes:
+            roll_values = []
+            pitch_values = []
+            yaw_values = []
+
+            for i in attitude_indexes:
+                euler = quaternion_to_euler(
+                    float(attitude["q[0]"][i]),
+                    float(attitude["q[1]"][i]),
+                    float(attitude["q[2]"][i]),
+                    float(attitude["q[3]"][i]),
+                )
+
+                roll_values.append(euler["roll_deg"])
+                pitch_values.append(euler["pitch_deg"])
+                yaw_values.append(euler["yaw_deg"])
+
+            result["attitude"] = {
+                "sample_count": len(attitude_indexes),
+                "roll_range_deg": [
+                    round(min(roll_values), 2),
+                    round(max(roll_values), 2),
+                ],
+                "pitch_range_deg": [
+                    round(min(pitch_values), 2),
+                    round(max(pitch_values), 2),
+                ],
+                "yaw_range_deg": [
+                    round(min(yaw_values), 2),
+                    round(max(yaw_values), 2),
+                ],
+            }
+
+        # Motor controls
+        motor_indexes = indexes_in_range(
+            motors["timestamp"]
+        )
+
+        if motor_indexes:
+            motor_summary = {}
+
+            for motor_number in range(12):
+                key = f"control[{motor_number}]"
+
+                if key not in motors:
+                    continue
+
+                values = [
+                    float(motors[key][i])
+                    for i in motor_indexes
+                ]
+
+                valid_values = [
+                    value
+                    for value in values
+                    if not math.isnan(value)
+                ]
+
+                if valid_values:
+                    motor_summary[f"motor_{motor_number + 1}"] = {
+                        "min": round(min(valid_values), 3),
+                        "max": round(max(valid_values), 3),
+                        "avg": round(
+                            sum(valid_values) / len(valid_values),
+                            3,
+                        ),
+                    }
+
+            result["motors"] = {
+                "sample_count": len(motor_indexes),
+                "outputs": motor_summary,
+            }
+
+        return result
+
+    except Exception as exc:
+        return {
+            "error": f"Failed to inspect ULog time range: {exc}"
+        }

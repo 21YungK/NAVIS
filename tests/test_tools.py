@@ -110,7 +110,6 @@ def test_flight_summary_ulg(monkeypatch, tmp_path):
 
     assert result["gps"]["minimum_satellites"] == 18
 
-
 def test_detect_anomalies(monkeypatch, tmp_path):
     fake_log = tmp_path / "test.ulg"
     fake_log.write_bytes(b"fake")
@@ -225,3 +224,40 @@ def test_does_not_correlate_distant_events():
     result = tools.correlate_anomalies(anomalies)
 
     assert result == []
+
+def test_quaternion_to_euler_identity():
+    result = tools.quaternion_to_euler(1.0, 0.0, 0.0, 0.0)
+
+    assert result["roll_deg"] == 0.0
+    assert result["pitch_deg"] == 0.0
+    assert result["yaw_deg"] == 0.0
+
+def test_inspect_time_range_invalid_range(tmp_path, monkeypatch):
+    fake_log = tmp_path / "test.ulg"
+    fake_log.write_bytes(b"fake")
+
+    monkeypatch.setattr(tools, "DATA_DIR", tmp_path)
+
+    result = tools.inspect_time_range(
+        "test.ulg",
+        10,
+        5,
+    )
+
+    assert result["error"] == (
+        "end_time_s must be greater than start_time_s"
+    )
+
+def test_inspect_time_range_negative_start(tmp_path, monkeypatch):
+    fake_log = tmp_path / "test.ulg"
+    fake_log.write_bytes(b"fake")
+
+    monkeypatch.setattr(tools, "DATA_DIR", tmp_path)
+
+    result = tools.inspect_time_range(
+        "test.ulg",
+        -1,
+        5,
+    )
+
+    assert result["error"] == "start_time_s must be >= 0"
