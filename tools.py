@@ -149,3 +149,95 @@ def flight_summary(filename: str):
         return {
             "error": f"Failed to summarize ULog: {exc}"
         }
+
+def detect_anomalies(filename: str):
+    path = DATA_DIR / filename
+
+    if not path.exists():
+        return {"error": "File not found"}
+
+    if path.suffix.lower() != ".ulg":
+        return {"error": "Anomaly detection currently supports .ulg files only"}
+
+    try:
+        ulog = ULog(str(path))
+
+        battery = ulog.get_dataset("battery_status").data
+        gps = ulog.get_dataset("vehicle_gps_position").data
+
+        anomalies = []
+
+        # Battery data
+        timestamps = battery["timestamp"]
+        voltage = battery["voltage_v"]
+        current = battery["current_a"]
+
+        starting_voltage = float(voltage[0])
+        low_voltage_threshold = starting_voltage * 0.80
+
+        # Detect lowest voltage sag
+        minimum_voltage = float(min(voltage))
+
+        if minimum_voltage < low_voltage_threshold:
+            index = list(voltage).index(min(voltage))
+
+            timestamp_s = (
+                float(timestamps[index]) - ulog.start_timestamp
+            ) / 1_000_000
+
+            anomalies.append({
+                "type": "battery_voltage_sag",
+                "timestamp_s": round(timestamp_s, 2),
+                "value_v": round(minimum_voltage, 2),
+                "threshold_v": round(low_voltage_threshold, 2),
+            })
+
+        # Detect highest current spike
+        maximum_current = float(max(current))
+        high_current_threshold = 45.0
+
+        if maximum_current > high_current_threshold:
+            index = list(current).index(max(current))
+
+            timestamp_s = (
+                float(timestamps[index]) - ulog.start_timestamp
+            ) / 1_000_000
+
+            anomalies.append({
+                "type": "high_current",
+                "timestamp_s": round(timestamp_s, 2),
+                "value_a": round(maximum_current, 2),
+                "threshold_a": high_current_threshold,
+            })
+
+        # Detect poor GPS reception
+        gps_timestamps = gps["timestamp"]
+        satellites = gps["satellites_used"]
+
+        minimum_satellites = int(min(satellites))
+        low_gps_threshold = 10
+
+        if minimum_satellites < low_gps_threshold:
+            index = list(satellites).index(min(satellites))
+
+            timestamp_s = (
+                float(gps_timestamps[index]) - ulog.start_timestamp
+            ) / 1_000_000
+
+            anomalies.append({
+                "type": "low_gps_satellites",
+                "timestamp_s": round(timestamp_s, 2),
+                "satellites": minimum_satellites,
+                "threshold": low_gps_threshold,
+            })
+
+        return {
+            "filename": filename,
+            "anomaly_count": len(anomalies),
+            "anomalies": anomalies,
+        }
+
+    except Exception as exc:
+        return {
+            "error": f"Failed to analyze ULog: {exc}"
+        }
