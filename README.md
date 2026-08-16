@@ -257,7 +257,7 @@ pip install -r requirements.txt
 Run the test suite:
 
 ```bash
-pytest
+python -m pytest
 ```
 
 ## Roadmap
@@ -278,6 +278,6 @@ NAVIS is still under active development. Areas I plan to explore include:
 
 ## Status
 
-**Work in progress.**
+**Work in progress!**
 
 NAVIS is being developed incrementally, with each analysis capability tested against real or controlled flight-log data before expanding the diagnostic pipeline.
